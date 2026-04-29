@@ -1,5 +1,7 @@
 import hashlib
 import struct
+from dotenv import load_dotenv
+import os
 
 def mine(email: str, github_url: str) -> int:
     """
@@ -18,7 +20,6 @@ def mine(email: str, github_url: str) -> int:
         # With 28 leading zero bits, the first 3 bytes are 0x00 and the 4th byte is < 16
         if digest[0] == 0 and digest[1] == 0 and digest[2] == 0 and digest[3] < 16:
             print(f"Found nonce: {nonce}")
-            print(f"Hash: {digest.hex()}")
             return nonce
         
         # Print progress
@@ -28,7 +29,10 @@ def mine(email: str, github_url: str) -> int:
         nonce += 1
 
 if __name__ == "__main__":
-    EMAIL = "my_email" # I don't want to push my email to a public repository but I inserted it here
+    load_dotenv()
+    EMAIL = os.getenv("EMAIL")
+    if not EMAIL:
+        raise ValueError("EMAIL not set in .env file")
     GITHUB_URL = "https://github.com/hanna1231/BlockchainEngineering"
     
     print(f"Mining for: {EMAIL}, {GITHUB_URL}")
