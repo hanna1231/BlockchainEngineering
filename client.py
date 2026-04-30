@@ -11,7 +11,6 @@ async def main():
     # Configure IPv8: which key to use, which community to join
     builder = ConfigBuilder().clear_keys().clear_overlays()
     
-    # This saves/loads your key from a .pem file — your permanent identity!
     builder.add_key("my_peer", "curve25519", "my_key.pem")
     
     # Join the Lab 1 community with a random walk peer discovery strategy
