@@ -139,7 +139,7 @@ class Lab2Community(Community):
     # ── bootstrap: registration ─────────────────────────────────────────────
 
     async def _register_group(self) -> None:
-        print("Registering group with server...")
+        # print("Registering group with server...")
         payload = RegisterPayload(
             member1_key=self.member_pubkeys[0],
             member2_key=self.member_pubkeys[1],
@@ -194,18 +194,25 @@ class Lab2Community(Community):
 
     @lazy_wrapper(ChallengeResponsePayload)
     def on_challenge_response(self, peer: PeerType, payload: ChallengeResponsePayload) -> None:
-        if peer.public_key.key_to_bin() != self._server_pubkey_bytes:
-            # print(f"⚠️  Ignoring ChallengeResponsePayload from unknown peer {peer}")
-            return
+        sender_pk = peer.public_key.key_to_bin()
+        is_from_server = (sender_pk == self._server_pubkey_bytes)
+        is_from_teammate = sender_pk in self.member_pubkeys
+        
         round_number = payload.round_number
         nonce = payload.nonce
         if self._i_am_leader():
+            if not is_from_server:
+                # print(f"⚠️  Ignoring RoundResultPayload from unknown peer {peer}")
+                return
             # Broadcast nonce to the other two members in parallel by redirecting message.
             self._broadcast(payload=payload)
             # Sign locally and store our own slot.
             my_sig = self._sign(nonce)
             self._collected_sigs[round_number][self.member_id] = my_sig
         else:
+            if not is_from_teammate:
+                # print(f"⚠️  Ignoring RoundResultPayload from unknown peer {peer}")
+                return
             # Sign nonce after receiving message
             sig = self._sign(nonce)
             leader_idx = self.leader_of(round_number)
