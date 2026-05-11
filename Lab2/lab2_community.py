@@ -11,7 +11,6 @@ from message_payloads import (
     ChallengeResponsePayload,
     SubmissionPayload,
     RoundResultPayload,
-    GroupIdPayload,
     SignaturePayload,
 )
 
@@ -96,7 +95,7 @@ class Lab2Community(Community):
     def _send_to_member(self, member_idx: int, payload) -> None:
         peer = self.member_peers[member_idx]
         if peer is None:
-            # print(f"⚠️  Cannot send to member {member_idx}: peer not yet discovered")
+            # # print(f"⚠️  Cannot send to member {member_idx}: peer not yet discovered")
             return
         self.ez_send(peer, payload)
 
@@ -108,7 +107,7 @@ class Lab2Community(Community):
     def on_peer_added(self, peer: PeerType) -> None:
         pk_bytes = peer.public_key.key_to_bin()
         if pk_bytes == self._server_pubkey_bytes:
-            # print(f"Found server peer: {peer}")
+            # # print(f"Found server peer: {peer}")
             self._server_peer = peer
 
         elif pk_bytes in self.member_pubkeys:
@@ -160,7 +159,7 @@ class Lab2Community(Community):
             return
         # print(f"✅  Registered: {payload.message} (group_id={payload.group_id})")
         self.group_id = payload.group_id
-        if self._i_am_leader:
+        if self._i_am_leader():
             self._broadcast(payload=payload)
             asyncio.ensure_future(self._start_round())
     
@@ -170,17 +169,6 @@ class Lab2Community(Community):
         for idx in range(MEMBER_COUNT):
             if idx not in skip and idx in self._ready_peers:
                 self.ez_send(self.member_peers[idx], payload)
-
-    @lazy_wrapper(GroupIdPayload)
-    def on_group_id(self, peer: PeerType, payload: GroupIdPayload) -> None:
-        # Only accept from member 0.
-        sender_pk = peer.public_key.key_to_bin()
-        if sender_pk != self.member_pubkeys[0]:
-            # print(f"⚠️  Ignoring GroupIdPayload from non-member-0 peer")
-            return
-        if self.group_id is None:
-            self.group_id = payload.group_id
-            # print(f"📥  Received group_id from member 0: {self.group_id}")
 
     # ── round driver ────────────────────────────────────────────────────────
 
@@ -231,7 +219,7 @@ class Lab2Community(Community):
         # Validate sender pubkey matches the claimed member_index.
         sender_pk = peer.public_key.key_to_bin()
         if idx < 0 or idx >= MEMBER_COUNT or sender_pk != self.member_pubkeys[idx]:
-            # # print(f"⚠️  Ignoring SignaturePayload: sender does not match member_index={idx}")
+            # print(f"⚠️  Ignoring SignaturePayload: sender does not match member_index={idx}")
             return
         if not self._i_am_leader():
             # print(f"⚠️  Got SignaturePayload for round {round_number} but I am not its leader")
