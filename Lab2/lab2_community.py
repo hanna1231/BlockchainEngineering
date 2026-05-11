@@ -111,18 +111,18 @@ class Lab2Community(Community):
     def on_peer_added(self, peer: PeerType) -> None:
         pk_bytes = peer.public_key.key_to_bin()
         if pk_bytes == self._server_pubkey_bytes:
-            # print(f"Found server peer: {peer}")
+            print(f"Found server peer: {peer}")
             self._server_peer = peer
 
         elif pk_bytes in self.member_pubkeys:
             idx = self.member_pubkeys.index(pk_bytes)
             if self.member_peers[idx] is None:
-                # print(f"Found team member peer #{idx}: {peer}")
+                print(f"Found team member peer #{idx}: {peer}")
                 self.member_peers[idx] = peer
                 self._ready_peers.add(idx)
         
         if self._all_teammembers_known() and self._server_peer is not None:
-            # print("All team members and server discovered")
+            print("All team members and server discovered")
             if self.member_id == 0 and not self._registration_sent:
                 self._registration_sent = True
                 asyncio.ensure_future(self._register_group())
@@ -141,7 +141,7 @@ class Lab2Community(Community):
     # ── bootstrap: registration ─────────────────────────────────────────────
 
     async def _register_group(self) -> None:
-        # print("Registering group with server...")
+        print("Registering group with server...")
         payload = RegisterPayload(
             member1_key=self.member_pubkeys[0],
             member2_key=self.member_pubkeys[1],
@@ -151,7 +151,7 @@ class Lab2Community(Community):
 
     @lazy_wrapper(ResponseRegisterPayload)
     def on_response(self, peer: PeerType, payload: ResponseRegisterPayload) -> None:
-        # print(f"Received response from peer {peer}")
+        print(f"Received response from peer {peer}")
         if peer.public_key.key_to_bin() != self._server_pubkey_bytes:
             # print(f"⚠️  Ignoring ResponseRegisterPayload from unknown peer {peer}")
             return
@@ -180,18 +180,18 @@ class Lab2Community(Community):
         # Only accept from member 0.
         sender_pk = peer.public_key.key_to_bin()
         if sender_pk != self.member_pubkeys[0]:
-            # print(f"⚠️  Ignoring GroupIdPayload from non-member-0 peer")
+            print(f"⚠️  Ignoring GroupIdPayload from non-member-0 peer")
             return
         if self.group_id is None:
             self.group_id = payload.group_id
-            # print(f"📥  Received group_id from member 0: {self.group_id}")
+            print(f"📥  Received group_id from member 0: {self.group_id}")
 
     # ── round driver ────────────────────────────────────────────────────────
 
     async def _start_round(self) -> None:
         assert self._i_am_leader(), "Only the round leader requests the challenge"
         self._collected_sigs[self.current_round] = [None, None, None]
-        # print(f"\n🚀  [round {self.current_round}] (leader={self.member_id}) requesting challenge")
+        print(f"\n🚀  [round {self.current_round}] (leader={self.member_id}) requesting challenge")
         self.ez_send(self._server_peer, ChallengeRequestPayload(group_id=self.group_id))
         
     def _send_broadcast_nonce(self, round_number: int, nonce: bytes) -> None:
@@ -206,7 +206,7 @@ class Lab2Community(Community):
         round_number = payload.round_number
         nonce = payload.nonce
         if not self._i_am_leader():
-            # print(f"⚠️  Got ChallengeResponse for round {round_number} but I am not its leader")
+            print(f"⚠️  Got ChallengeResponse for round {round_number} but I am not its leader")
             return
         # Broadcast nonce to the other two members in parallel.
         self._send_broadcast_nonce(round_number, nonce)
@@ -245,7 +245,7 @@ class Lab2Community(Community):
     def _submit_round(self) -> None:
         round_number = self.current_round
         sigs = self._collected_sigs[round_number]
-        # print(f"📤  [round {round_number}] all 3 sigs collected, submitting bundle ")
+        print(f"📤  [round {round_number}] all 3 sigs collected, submitting bundle ")
         bundle = SubmissionPayload(
             group_id=self.group_id,
             round_number=round_number,
@@ -271,12 +271,13 @@ class Lab2Community(Community):
             return
 
         if is_from_server:
-            # print(f"✅  Round {round_number} successful: {payload.message}")
+            print(f"✅  Round {round_number} successful: {payload.message}")
+            self._broadcast(payload=payload)
             
             # Broadcast the result to other members
-            for idx in range(MEMBER_COUNT):
-                if idx != self.member_id:
-                    self._send_to_member(idx, payload)
+            # for idx in range(MEMBER_COUNT):
+            #     if idx != self.member_id:
+            #         self._send_to_member(idx, payload)
         
         # Auto-advance if I'm the next leader
         next_round = round_number + 1
