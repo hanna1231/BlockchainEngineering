@@ -3,4 +3,5 @@ venv/
 myenv/
 __pycache__/
 my_key.pem
+Lab2\my_key.pem
 get_public_key.py
