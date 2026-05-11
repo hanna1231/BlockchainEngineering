@@ -159,7 +159,7 @@ class Lab2Community(Community):
             return
         # print(f"✅  Registered: {payload.message} (group_id={payload.group_id})")
         self.group_id = payload.group_id
-        if self._i_am_leader:
+        if self._i_am_leader():
             self._broadcast(payload=payload)
             asyncio.ensure_future(self._start_round())
     
