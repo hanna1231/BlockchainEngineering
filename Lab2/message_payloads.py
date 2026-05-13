@@ -35,12 +35,6 @@ class RoundResultPayload(VariablePayload):
 
 # ─── Internal peer-to-peer payloads (not seen by the server) ────────────────
 
-class GroupIdPayload(VariablePayload):
-    """Member 0 broadcasts the registered group_id to members 1 and 2."""
-    msg_id = 7
-    format_list = ["varlenHutf8"]
-    names = ["group_id"]
-
 class SignaturePayload(VariablePayload):
     """Non-leader sends its signature on the nonce back to the round leader."""
     msg_id = 9
