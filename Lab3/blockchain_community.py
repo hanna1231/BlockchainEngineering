@@ -11,6 +11,7 @@ from message_payloads import (
     SubmitTransaction,
     SubmitTransactionResponse
 )
+
 from constants import (
     BLOCKCHAIN_COMMUNITY_ID,
     SERVER_PUBKEY_BYTES,

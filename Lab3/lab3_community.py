@@ -70,7 +70,6 @@ class Lab3Community(Community):
     def on_peer_added(self, peer: PeerType) -> None:
         pk_bytes = peer.public_key.key_to_bin()
         pk_hex = pk_bytes.hex()
-        print(f"Found peer: {pk_hex[:40]}…")
         if pk_bytes == self._server_pubkey_bytes:
             print(f"Found server peer: {peer}")
             self._server_peer = peer
@@ -86,7 +85,7 @@ class Lab3Community(Community):
             print("All team members and server discovered")
             if self.member_id == 0 and not self._registration_sent:
                 self._registration_sent = True
-                asyncio.ensure_future(self._register_blockchain())
+                self._register_blockchain()
                 
         
     def on_peer_removed(self, peer: PeerType) -> None:
@@ -104,7 +103,7 @@ class Lab3Community(Community):
         assert self._all_teammembers_known(), "All team member peers must be discovered before registering"
         bundle = RegisterBlockchain(
             group_id = GROUP_ID,
-            community_id_self = BLOCKCHAIN_COMMUNITY_ID
+            community_id = BLOCKCHAIN_COMMUNITY_ID
         )
         self.ez_send(self._server_peer, bundle)
 
