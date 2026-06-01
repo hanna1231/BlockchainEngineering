@@ -71,13 +71,13 @@ class Lab3Community(Community):
         pk_bytes = peer.public_key.key_to_bin()
         pk_hex = pk_bytes.hex()
         if pk_bytes == self._server_pubkey_bytes:
-            print(f"Found server peer: {peer}")
+            print(f"Found in lab3 community server peer: {peer}")
             self._server_peer = peer
 
         elif pk_bytes in self.member_pubkeys:
             idx = self.member_pubkeys.index(pk_bytes)
             if self.member_peers[idx] is None:
-                print(f"Found team member peer #{idx}: {peer}")
+                print(f"Found in lab3 community team member peer #{idx}: {peer}")
                 self.member_peers[idx] = peer
                 self._ready_peers.add(idx)
         
