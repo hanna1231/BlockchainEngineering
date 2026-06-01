@@ -146,6 +146,6 @@ class BlockchainCommunity(Community):
             difficulty = block.difficulty,
             nonce = block.nonce,
             block_hash = block.block_hash,
-            tx_hashes = block.tx_hashes,
+            tx_hashes = b"".join(block.tx_hashes),
         )
         self.ez_send(peer, bundle)

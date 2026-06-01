@@ -4,10 +4,6 @@ import struct
 from ipv8.keyvault.crypto import default_eccrypto
 from constants import GENESIS_PREV_HASH, GENESIS_TIMESTAMP, GENESIS_DIFFICULTY, GENESIS_NONCE
 
-
-
-
-
 # ── helpers ─────────────────────────────────────────────────────────────
     
 def check_pow(block_hash: bytes, difficulty: int) -> bool:
@@ -41,11 +37,28 @@ class Block:
     block_hash: bytes
     tx_hashes: list[bytes] = field(default_factory=list)
 
-    
-
     def verify_block(self) -> bool:
-        # TODO
+        # Check block hash
+        expected_hash = compute_block_hash(
+            self.prev_hash, self.txs_hash,
+            self.timestamp, self.difficulty, self.nonce
+        )
+        if expected_hash != self.block_hash:
+            return False
+        
+        # Check block pow
+        if not check_pow(self.block_hash, self.difficulty):
+            return False
+        
+        # Check block body
+        if compute_txs_hash(self.tx_hashes) != self.txs_hash:
+            return False
+        
+        # Check previous block
+        # TODO but maybe not in this function
+        
         return True
+    
     
 def make_genesis() -> Block:
     txs_hash = compute_txs_hash([])   # SHA256(b"")

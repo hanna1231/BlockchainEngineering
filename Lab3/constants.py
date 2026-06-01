@@ -31,6 +31,8 @@ def load_member_pubkeys() -> list[bytes]:
     """Load the 3 registered Lab-1 public keys from disk (hex-encoded)."""
     return [bytes.fromhex(open(p).read().strip()) for p in KEY_FILES]
 
+# ── Genesis block ───────────────────────────────────────────────────
+
 GENESIS_PREV_HASH = b'\x00' * 32
 GENESIS_TIMESTAMP = 1748736000  # Fixed for all nodes
 GENESIS_DIFFICULTY = 0
