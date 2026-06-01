@@ -1,7 +1,6 @@
 """Shared constants and helpers for the Lab 3 communities."""
 
 import os
-from blockchain import Block, compute_txs_hash, compute_block_hash
 
 # ── Registration community (Lab 3 server) ──────────────────────────────────
 REGISTRATION_COMMUNITY_ID_HEX = "4c616233426c6f636b636861696e323032365057"
@@ -32,12 +31,7 @@ def load_member_pubkeys() -> list[bytes]:
     """Load the 3 registered Lab-1 public keys from disk (hex-encoded)."""
     return [bytes.fromhex(open(p).read().strip()) for p in KEY_FILES]
 
-
-GENESIS_BLOCK = Block(
-    prev_hash = b'\x00' * 32,
-    txs_hash = compute_txs_hash([]),
-    timestamp = 1748736000,
-    nonce = 0,
-    block_hash = 
-
-)
+GENESIS_PREV_HASH = b'\x00' * 32
+GENESIS_TIMESTAMP = 1748736000  # Fixed for all nodes
+GENESIS_DIFFICULTY = 0
+GENESIS_NONCE     = 0
