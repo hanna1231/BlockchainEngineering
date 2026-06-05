@@ -16,6 +16,7 @@ SERVER_PUBKEY_BYTES = bytes.fromhex(SERVER_PUBKEY_HEX)
 
 # ── Our blockchain community ───────────────────────────────────────────────
 BLOCKCHAIN_COMMUNITY_ID = b"\x01\xb6\xf0}H\xc6R\xc9H\x1a\xd6\x11H\xf6{G%i\xf3i"
+DIFFICULTY = 16
 
 # ── Group / team members ───────────────────────────────────────────────────
 GROUP_ID = "206290bb8cc8016f"
@@ -36,4 +37,4 @@ def load_member_pubkeys() -> list[bytes]:
 GENESIS_PREV_HASH = b'\x00' * 32
 GENESIS_TIMESTAMP = 1748736000  # Fixed for all nodes
 GENESIS_DIFFICULTY = 0
-GENESIS_NONCE     = 0
+GENESIS_NONCE = 0

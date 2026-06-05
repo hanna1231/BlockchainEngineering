@@ -3,7 +3,7 @@ from hashlib import sha256
 import struct
 import time
 from ipv8.keyvault.crypto import default_eccrypto
-from constants import GENESIS_PREV_HASH, GENESIS_TIMESTAMP, GENESIS_DIFFICULTY, GENESIS_NONCE
+from constants import DIFFICULTY, GENESIS_PREV_HASH, GENESIS_TIMESTAMP, GENESIS_DIFFICULTY, GENESIS_NONCE
 from helpers import mine, compute_block_hash, compute_txs_hash, check_pow
 
 # ── Block  ─────────────────────────────────────────────────────────────
@@ -78,11 +78,12 @@ class Blockchain:
             return self.chain[height]
         return None
     
-    def add_block(self, difficulty: int) -> Block:
+    def add_block(self) -> Block:
+        difficulty = DIFFICULTY
         prev_block = self.chain[-1]
         prev_hash = prev_block.block_hash
         tx_hashes = [tx.tx_hash for tx in self.mempool]
-        self.mempool.remove(0, len(self.mempool))
+        del self.mempool[:len(tx_hashes)]
         timestamp = int(time.time())
 
         mined_nonce = mine(prev_hash, tx_hashes, difficulty, timestamp)
@@ -107,7 +108,7 @@ class Blockchain:
         
         return new_block
     
-    def make_genesis() -> Block:
+    def make_genesis(self) -> Block:
         txs_hash = compute_txs_hash([])   # SHA256(b"")
         nonce = GENESIS_NONCE
         block_hash = compute_block_hash(
