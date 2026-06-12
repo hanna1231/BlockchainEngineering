@@ -78,8 +78,11 @@ class Blockchain:
             return self.chain[height]
         return None
     
-    def append_block(self, block: Block):
-        self.chain.append(block)
+    def append_block(self, block: Block) -> bool:
+        if self.chain[-1].block_hash == block.prev_hash:
+            self.chain.append(block)
+            return True
+        return False
     
     def mine_block(self) -> Block:
         difficulty = DIFFICULTY
@@ -108,7 +111,7 @@ class Blockchain:
         
         # Add to chain and clear mempool
         # TODO niet meteen block toevoegen maar eerst checken
-        self.chain.append(new_block)
+        self.append_block(new_block)
 
         print(f"Mined new block at height {self.get_chain_height()} with {len(tx_hashes)} transactions")
         
