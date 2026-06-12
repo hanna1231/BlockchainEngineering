@@ -6,3 +6,4 @@ my_key.pem
 my_key_back.pem
 get_public_key.py
 create_communityid.py
+/Lab3/chain_dumps/
