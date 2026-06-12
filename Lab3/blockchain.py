@@ -28,6 +28,10 @@ class Block:
         if expected_hash != self.block_hash:
             return False
         
+        expected_difficulty = GENESIS_DIFFICULTY if self.prev_hash == GENESIS_PREV_HASH else DIFFICULTY
+        if self.difficulty != expected_difficulty:
+            return False
+        
         # Check block pow
         if not check_pow(self.block_hash, self.difficulty):
             return False
@@ -35,9 +39,6 @@ class Block:
         # Check block body
         if compute_txs_hash(self.tx_hashes) != self.txs_hash:
             return False
-        
-        # Check previous block
-        # TODO but maybe not in this function
         
         return True
     

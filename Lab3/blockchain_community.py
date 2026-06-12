@@ -178,7 +178,7 @@ class BlockchainCommunity(Community):
 
     @lazy_wrapper(GetBlock)
     def on_get_block(self, peer: PeerType, payload: GetBlock) -> None:
-        print(f"Received on get block with height {payload.height}")
+        # print(f"Received on get block with height {payload.height}")
         
         if not self.from_server_or_teammate(peer):
             return
@@ -245,7 +245,9 @@ class BlockchainCommunity(Community):
             self.ez_send(peer, bundle)
             return
         
-        self.blockchain.append_block(block)
+        if not self.blockchain.append_block(block):
+            # TODO sync strategy
+            print(f"Failed to append block at height {payload.height}, maybe due to mismatched prev_hash?")
         print(f"Added block at height {payload.height} to the chain")
         print(f"Chain height is now {self.blockchain.get_chain_height()}")
     
@@ -306,6 +308,9 @@ class BlockchainCommunity(Community):
 
         for i in range(payload.num_blocks):
             block = self.extract_ith_block_from_payload(payload, i)
+            if block is None:
+                print(f"Failed to parse block index {i} from MultipleBlocksResponse")
+                return
 
             if not block.verify_block():
                 print(f"NOT GOOD, block wrong")
@@ -315,7 +320,9 @@ class BlockchainCommunity(Community):
                 print(f"Block at height {payload.start_height + i} already exists")
                 return
             
-            self.blockchain.append_block(block)
+            if not self.blockchain.append_block(block):
+                # TODO sync strategy
+                print(f"Failed to append block at height {payload.start_height + i}, maybe due to mismatched prev_hash?")
 
     async def _mining_loop(self) -> None:
         """Mine only when there is at least one transaction in the mempool."""
@@ -344,19 +351,19 @@ class BlockchainCommunity(Community):
             except Exception as e:
                 print(f"[mining] Error: {e}")
                 
-            await asyncio.sleep(2)
+            await asyncio.sleep(15)
                 
     def extract_ith_block_from_payload(self, payload, i: int) -> Block | None:
-        # payload.block_count: int
+        # payload.num_blocks: int
         # payload.blocks_data: bytes
         # Returns Block or None
-        if i < 0 or i >= payload.block_count:
+        if i < 0 or i >= payload.num_blocks:
             return None
 
         data = payload.blocks_data
         offset = 0
 
-        for idx in range(payload.block_count):
+        for idx in range(payload.num_blocks):
             # Fixed-size part: 32+32+8+8+8+32+2 = 122 bytes, plus fixed tx hash slots
             if len(data) - offset < 122 + MAX_TX_HASHES * 32:
                 return None
