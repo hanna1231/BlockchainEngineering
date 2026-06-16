@@ -1,8 +1,12 @@
 import asyncio
+import random
+import time
 from ipv8.community import Community, CommunitySettings
 from ipv8.peer import Peer as PeerType
 from ipv8.lazy_community import lazy_wrapper
+from constants import MAX_SEARCH_DEPTH
 
+from helpers import extract_ith_block_from_payload
 from message_payloads import (
     GetChainHeight,
     ChainHeightResponse,
@@ -21,6 +25,10 @@ from constants import (
     MEMBER_COUNT,
     MY_MEMBER_ID,
     MAX_TX_HASHES,
+    PARTITION_TEST_ENABLED,
+    PARTITION_START_AFTER_SECONDS,
+    PARTITION_DURATION_SECONDS,
+    MAX_SLEEP_MINING_LOOP,
     load_member_pubkeys,
 )
 
@@ -34,15 +42,15 @@ class BlockchainCommunity(Community):
         self.member_id: int = MY_MEMBER_ID
         self.member_pubkeys: list[bytes] = load_member_pubkeys()
         self.member_peers: list[PeerType | None] = [None] * MEMBER_COUNT
-        self._ready_peers: set[int] = {self.member_id}
-
         self.group_id = GROUP_ID
+
         self.blockchain = Blockchain()
+        self.mining_task: asyncio.Task | None = None
+        self.polling_task: asyncio.Task | None = None
 
-        self._mining_task: asyncio.Task | None = None
+        self.started_at: float = time.monotonic()
 
-        # Sanity-check: my IPv8 key MUST match the pubkey at MY_MEMBER_ID,
-        # otherwise the server will reject every signed packet.
+        # My IPv8 key must match the pubkey at MY_MEMBER_ID
         my_pk = self.my_peer.public_key.key_to_bin()
         expected = self.member_pubkeys[self.member_id]
         if my_pk != expected:
@@ -53,8 +61,8 @@ class BlockchainCommunity(Community):
         # I already know my own peer object.
         self.member_peers[self.member_id] = self.my_peer
 
-        self._server_pubkey_bytes = SERVER_PUBKEY_BYTES
-        self._server_peer: PeerType | None = None
+        self.server_pubkey_bytes = SERVER_PUBKEY_BYTES
+        self.server_peer: PeerType | None = None
 
         self.add_message_handler(SubmitTransaction, self.on_submit_transaction)
         self.add_message_handler(GetChainHeight, self.on_chain_height)
@@ -62,20 +70,47 @@ class BlockchainCommunity(Community):
         self.add_message_handler(BlockResponse, self.on_block_response)
         self.add_message_handler(GetMultipleBlocks, self.on_get_multiple_blocks)
         self.add_message_handler(MultipleBlocksResponse, self.on_multiple_blocks_response)
+        self.add_message_handler(ChainHeightResponse, self.on_chain_height_response)
 
     def started(self) -> None:
+        self.started_at = time.monotonic()
         self.network.add_peer_observer(self)
+        if self.polling_task is None:
+            self.polling_task = asyncio.create_task(self._polling_loop())
 
-    def _all_teammembers_known(self) -> bool:
-        return all(p is not None for p in self.member_peers)
-    
-    def from_server_or_teammate(self, peer: PeerType) -> bool:
-        if self._server_peer is not None and peer == self._server_peer:
+    def partition_active(self) -> bool:
+        if not PARTITION_TEST_ENABLED:
+            return False
+        elapsed = time.monotonic() - self.started_at
+        return PARTITION_START_AFTER_SECONDS <= elapsed < (PARTITION_START_AFTER_SECONDS + PARTITION_DURATION_SECONDS)
+
+    def can_exchange_with_peer(self, peer: PeerType) -> bool:
+        '''Return True if peer is the server or member peer in our partition, otherwise False.'''
+        # Peer is the server, always keep the communication
+        if self.server_peer is not None and peer == self.server_peer:
             return True
+        
         if peer in self.member_peers:
-            return True
-        print("⚠️  Received message from unknown peer, ignoring")
+            if self.partition_active():
+                print("[PARTITION] Dropping outbound message across partition to member")
+                return False
+            else:
+                return True
+
+        # Unknown peer
         return False
+
+    def safe_send(self, peer: PeerType, payload: object) -> None:
+        if peer is None or peer == self.my_peer:
+            return
+        
+        if not self.can_exchange_with_peer(peer):
+            return
+        
+        self.ez_send(peer, payload)
+
+    def all_teammembers_known(self) -> bool:
+        return all(p is not None for p in self.member_peers)
     
     def broadcast_block(self, new_block: Block) -> None:
         bundle = BlockResponse(
@@ -90,46 +125,40 @@ class BlockchainCommunity(Community):
         )
 
         for peer in self.member_peers:
-            if peer is not None and peer != self.my_peer:
-                self.ez_send(peer, bundle)
-
-    # ── peer discovery ──────────────────────────────────────────────────────
+            self.safe_send(peer, bundle)
     
     def on_peer_added(self, peer: PeerType) -> None:
         pk_bytes = peer.public_key.key_to_bin()
-        if pk_bytes == self._server_pubkey_bytes:
-            print(f"Found in blockchain community server peer: {peer}")
-            self._server_peer = peer
+        if pk_bytes == self.server_pubkey_bytes:
+            print(f"[DISCOVERY] Found in blockchain community server peer: {peer}")
+            self.server_peer = peer
 
         elif pk_bytes in self.member_pubkeys:
             idx = self.member_pubkeys.index(pk_bytes)
             if self.member_peers[idx] is None:
-                print(f"Found in blockchain community team member peer #{idx}: {peer}")
+                print(f"[DISCOVERY] Found in blockchain community team member peer #{idx}: {peer}")
                 self.member_peers[idx] = peer
-                self._ready_peers.add(idx)
         
-        if self._all_teammembers_known() and self._server_peer is not None and self._mining_task is None:
-            self._mining_task = asyncio.create_task(self._mining_loop())
-            print("All team members and server discovered")
+        if self.all_teammembers_known() and self.server_peer is not None and self.mining_task is None:
+            self.mining_task = asyncio.create_task(self._mining_loop())
+            print(f"[DISCOVERY] All team members and server discovered")
         
     def on_peer_removed(self, peer: PeerType) -> None:
-        if self._server_peer is not None and peer == self._server_peer:
-            print("⚠️  Server peer disconnected")
-            self._server_peer = None
+        if self.server_peer is not None and peer == self.server_peer:
+            print(f"[DISCOVERY] Server peer disconnected: {peer}")
+            self.server_peer = None
+
         if peer in self.member_peers:
             idx = self.member_peers.index(peer)
-            print(f"⚠️  Team member peer #{idx} disconnected: {peer}")
+            print(f"[DISCOVERY] Team member peer #{idx} disconnected: {peer}")
             self.member_peers[idx] = None
-            self._ready_peers.discard(idx)
-
     
     @lazy_wrapper(SubmitTransaction)
     def on_submit_transaction(self, peer: PeerType, payload: SubmitTransaction) -> None:
-        '''Handle a SubmitTransaction message from server. Validate the transaction and add it to the mempool if valid.'''
-        print("RECEIVED SUBMIT TRANSACTION")
-        
-        if not self.from_server_or_teammate(peer):
+        if not self.can_exchange_with_peer(peer):
             return
+
+        print(f"[TRANSACTION] Received transaction from peer {peer}")
 
         transaction = Transaction(
             sender_key = payload.sender_key,
@@ -137,34 +166,39 @@ class BlockchainCommunity(Community):
             timestamp = payload.timestamp,
             signature = payload.signature,
         )
-        
+
         if not transaction.verify_signature():
-            print("⚠️  Received transaction with invalid signature")
+            print(f"[TRANSACTION] Received transaction with invalid signature: {transaction.tx_hash}")
             bundle = SubmitTransactionResponse(
                 success = False,
                 tx_hash = transaction.tx_hash,
                 message = "Invalid transaction signature"
             )
-            self.ez_send(peer, bundle)
+            self.safe_send(peer, bundle)
             return
         
-        print(f"Add transaction to mempool")
-        self.blockchain.mempool.append(transaction)
-        print(f"Received valid transaction, mempool size is now {len(self.blockchain.mempool)}")
+        if not self.blockchain.add_transaction(transaction):
+            print(f"[TRANSACTION] Failed to add transaction to mempool, duplicate tx found: {transaction.tx_hash}")
+            bundle = SubmitTransactionResponse(
+                success = False,
+                tx_hash = transaction.tx_hash,
+                message = "Failed to add transaction"
+            )
+            self.safe_send(peer, bundle)
+            return
+        
+        print(f"[TRANSACTION] Added transaction to mempool: {transaction.tx_hash}, mempool size is now {len(self.blockchain.mempool)}")
         bundle = SubmitTransactionResponse(
             success = True,
             tx_hash = transaction.tx_hash,
             message = "Transaction accepted"
         )
-        self.ez_send(peer, bundle)
+        self.safe_send(peer, bundle)
         
     
     @lazy_wrapper(GetChainHeight)
-    def on_chain_height(self, peer: PeerType, payload: GetChainHeight) -> None:
-        '''Handle a GetChainHeight message from server or peer. Respond with the current chain height and tip hash.'''
-        print("Received chain height function")
-        
-        if not self.from_server_or_teammate(peer):
+    def on_chain_height(self, peer: PeerType, payload: GetChainHeight) -> None:        
+        if not self.can_exchange_with_peer(peer):
             return
         
         height = self.blockchain.get_chain_height()
@@ -174,13 +208,25 @@ class BlockchainCommunity(Community):
             height = height,
             tip_hash = tip_hash,
         )
-        self.ez_send(peer, bundle)
+        self.safe_send(peer, bundle)
+        
+    @lazy_wrapper(ChainHeightResponse)
+    def on_chain_height_response(self, peer: PeerType, payload: ChainHeightResponse) -> None:
+        if not self.can_exchange_with_peer(peer):
+            return
+
+        local_height = self.blockchain.get_chain_height()
+        local_tip_hash = self.blockchain.get_block(local_height).block_hash
+        print(f"[poll] ChainHeightResponse from {peer}: height={payload.height}")
+
+        if payload.height > local_height or (payload.height == local_height and payload.tip_hash != local_tip_hash):
+            start_height = max(0, local_height - MAX_SEARCH_DEPTH)
+            print(f"[poll] Remote chain is newer or diverged; requesting blocks from {peer} starting at {start_height}")
+            self.safe_send(peer, GetMultipleBlocks(start_height=start_height))
 
     @lazy_wrapper(GetBlock)
-    def on_get_block(self, peer: PeerType, payload: GetBlock) -> None:
-        # print(f"Received on get block with height {payload.height}")
-        
-        if not self.from_server_or_teammate(peer):
+    def on_get_block(self, peer: PeerType, payload: GetBlock) -> None:       
+        if not self.can_exchange_with_peer(peer):
             return
 
         block = self.blockchain.get_block(payload.height)
@@ -202,13 +248,13 @@ class BlockchainCommunity(Community):
             block_hash = block.block_hash,
             tx_hashes = b"".join(block.tx_hashes),
         )
-        self.ez_send(peer, bundle)
+        self.safe_send(peer, bundle)
     
     @lazy_wrapper(BlockResponse)
     def on_block_response(self, peer: PeerType, payload: BlockResponse) -> None:
         print(f"Received block")
         
-        if not self.from_server_or_teammate(peer):
+        if not self.can_exchange_with_peer(peer):
             return
 
         if len(payload.tx_hashes) % 32 != 0:
@@ -242,12 +288,19 @@ class BlockchainCommunity(Community):
             bundle = GetMultipleBlocks(
                 start_height = self.blockchain.get_chain_height() + 1
             )
-            self.ez_send(peer, bundle)
+            self.safe_send(peer, bundle)
             return
         
         if not self.blockchain.append_block(block):
-            # TODO sync strategy
-            print(f"Failed to append block at height {payload.height}, maybe due to mismatched prev_hash?")
+            # Competing branch: only reorg if their chain is strictly longer
+            if payload.height > self.blockchain.get_chain_height():
+                print(f"Competing branch detected at height {payload.height}, fetching overlap window")
+                self.safe_send(peer, GetMultipleBlocks(
+                    start_height=max(0, self.blockchain.get_chain_height() - MAX_SEARCH_DEPTH)
+                ))
+            else:
+                print(f"Failed to append block at height {payload.height}, ignoring")
+
         print(f"Added block at height {payload.height} to the chain")
         print(f"Chain height is now {self.blockchain.get_chain_height()}")
     
@@ -255,7 +308,7 @@ class BlockchainCommunity(Community):
     def on_get_multiple_blocks(self, peer: PeerType, payload: GetMultipleBlocks) -> None:
         print(f"Received request for multiple blocks starting at height {payload.start_height}")
         
-        if not self.from_server_or_teammate(peer):
+        if not self.can_exchange_with_peer(peer):
             return
         
         start = payload.start_height
@@ -274,7 +327,7 @@ class BlockchainCommunity(Community):
             blocks_data += block.prev_hash
             blocks_data += block.txs_hash
             blocks_data += block.timestamp.to_bytes(8, "big", signed=True)
-            blocks_data += block.difficulty.to_bytes(8, "big", signed=True)
+            blocks_data += block.difficulty.to_bytes(4, "big", signed=False)
             blocks_data += block.nonce.to_bytes(8, "big", signed=True)
             blocks_data += block.block_hash
             tx_count = len(block.tx_hashes)
@@ -293,21 +346,23 @@ class BlockchainCommunity(Community):
             num_blocks = num_blocks,
             blocks_data = blocks_data,
         )
-        self.ez_send(peer, bundle)
+        self.safe_send(peer, bundle)
 
     @lazy_wrapper(MultipleBlocksResponse)
     def on_multiple_blocks_response(self, peer: PeerType, payload: MultipleBlocksResponse) -> None:
-        print(f"Received blocksss")
+        print(f"Received multiple blocks")
         
-        if not self.from_server_or_teammate(peer):
+        if not self.can_exchange_with_peer(peer):
             return
-        
+
         if payload.start_height - 1 > self.blockchain.get_chain_height():
             print(f"Missing blocks, cannot add block at height {payload.start_height}")
             return
-
+        
+        # Build list of blocks from payload and verify them
+        blocks: list[Block] = []
         for i in range(payload.num_blocks):
-            block = self.extract_ith_block_from_payload(payload, i)
+            block = extract_ith_block_from_payload(payload, i)
             if block is None:
                 print(f"Failed to parse block index {i} from MultipleBlocksResponse")
                 return
@@ -316,13 +371,69 @@ class BlockchainCommunity(Community):
                 print(f"NOT GOOD, block wrong")
                 return
             
-            if payload.start_height + i <= self.blockchain.get_chain_height():
-                print(f"Block at height {payload.start_height + i} already exists")
+            blocks.append(block)
+
+        # Try to append blocks
+        their_height = payload.start_height + payload.num_blocks - 1
+        for idx, block in enumerate(blocks):
+            current_height = payload.start_height + idx
+
+            if current_height <= self.blockchain.get_chain_height():
+                # Overlap with local chain: compare hashes to detect divergence.
+                local_block = self.blockchain.get_block(current_height)
+                if local_block is None:
+                    print(f"Missing local block at height {current_height} during overlap check")
+                    return
+                if local_block.block_hash != block.block_hash:
+                    our_height = self.blockchain.get_chain_height()
+                    if their_height > our_height:
+                        print(f"Detected stronger fork at overlap height {current_height}, resolving")
+                        self._fork_resolution(peer, their_height, blocks[idx:], current_height)
+                    else:
+                        print(f"Detected competing fork at overlap height {current_height}, keeping local chain")
+                    return
+                continue
+            
+            if self.blockchain.append_block(block):
+                print(f"Appended block at height {current_height} to the chain")
+            else:
+                # fork resolution
+                self._fork_resolution(peer, their_height, blocks[idx:], current_height)
+                return
+
+    def _fork_resolution(self, peer: PeerType, their_height: int, branch: list[Block], branch_start_height: int) -> None:
+        # Fork resolution: if any blocks didn't append cleanly, find common ancestor
+        if their_height > self.blockchain.get_chain_height():
+            ancestor_height = self.blockchain.find_common_ancestor(branch)
+            if ancestor_height is None:
+                if branch_start_height == 0 or their_height - branch_start_height >= MAX_SEARCH_DEPTH:
+                    print("[reorg] No common ancestor found, cannot resolve fork")
+                    return
+                fetch_start = max(0, their_height - MAX_SEARCH_DEPTH)
+                print(f"[reorg] Ancestor not found; requesting earlier blocks from {fetch_start}")
+                self.safe_send(peer, GetMultipleBlocks(start_height=fetch_start))
                 return
             
-            if not self.blockchain.append_block(block):
-                # TODO sync strategy
-                print(f"Failed to append block at height {payload.start_height + i}, maybe due to mismatched prev_hash?")
+            fork_start_index = ancestor_height + 1 - branch_start_height
+            if not self.blockchain.switch_to_fork(ancestor_height, branch[max(0, fork_start_index):]):
+                print("[reorg] Failed to switch to fork")
+                return
+            print(f"Chain height is now {self.blockchain.get_chain_height()}")
+
+    async def _polling_loop(self) -> None:
+        print("[poll] Started chain height polling")
+        while True:
+            peers = [p for p in self.member_peers if p is not None and p != self.my_peer]
+            if self.server_peer is not None:
+                peers.append(self.server_peer)
+
+            if peers:
+                peer = random.choice(peers)
+                request_id = time.time_ns()
+                print(f"[poll] Requesting chain height from {peer} (request_id={request_id})")
+                self.safe_send(peer, GetChainHeight(request_id=request_id))
+
+            await asyncio.sleep(5)
 
     async def _mining_loop(self) -> None:
         """Mine only when there is at least one transaction in the mempool."""
@@ -351,66 +462,4 @@ class BlockchainCommunity(Community):
             except Exception as e:
                 print(f"[mining] Error: {e}")
                 
-            await asyncio.sleep(15)
-                
-    def extract_ith_block_from_payload(self, payload, i: int) -> Block | None:
-        # payload.num_blocks: int
-        # payload.blocks_data: bytes
-        # Returns Block or None
-        if i < 0 or i >= payload.num_blocks:
-            return None
-
-        data = payload.blocks_data
-        offset = 0
-
-        for idx in range(payload.num_blocks):
-            # Fixed-size part: 32+32+8+8+8+32+2 = 122 bytes, plus fixed tx hash slots
-            if len(data) - offset < 122 + MAX_TX_HASHES * 32:
-                return None
-
-            prev_hash = data[offset:offset + 32]
-            offset += 32
-
-            txs_hash = data[offset:offset + 32]
-            offset += 32
-
-            timestamp = int.from_bytes(data[offset:offset + 8], "big", signed=True)
-            offset += 8
-
-            difficulty = int.from_bytes(data[offset:offset + 8], "big", signed=True)
-            offset += 8
-
-            nonce = int.from_bytes(data[offset:offset + 8], "big", signed=True)
-            offset += 8
-
-            block_hash = data[offset:offset + 32]
-            offset += 32
-
-            tx_count = int.from_bytes(data[offset:offset + 2], "big")
-            offset += 2
-
-            if tx_count < 0 or tx_count > MAX_TX_HASHES:
-                return None
-
-            if len(data) - offset < MAX_TX_HASHES * 32:
-                return None
-
-            tx_hashes = []
-            for _ in range(tx_count):
-                tx_hashes.append(data[offset:offset + 32])
-                offset += 32
-
-            offset += (MAX_TX_HASHES - tx_count) * 32
-
-            if idx == i:
-                return Block(
-                    prev_hash=prev_hash,
-                    txs_hash=txs_hash,
-                    timestamp=timestamp,
-                    difficulty=difficulty,
-                    nonce=nonce,
-                    block_hash=block_hash,
-                    tx_hashes=tx_hashes,
-                )
-
-        return None
+            await asyncio.sleep(random.uniform(1, MAX_SLEEP_MINING_LOOP))
