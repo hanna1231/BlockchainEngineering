@@ -38,11 +38,11 @@ pip install -r requirements.txt
 ### Usage
 
 ```bash
-python client.py
+python main.py
 ```
 
 ## Instructions Lab 3
-Copy the private key generated that was generated when running `Lab1` and that is stored in the `Lab1/my_key.pem`. Place it in the `Lab3` folder. Also store each members public key in text files called `Lab2/first_key.txt`, `Lab2/second_key.txt` and `Lab3/third_key.txt`.
+Copy the private key generated that was generated when running `Lab1` and that is stored in the `Lab1/my_key.pem`. Place it in the `Lab3` folder. Also store each members public key in text files called `Lab3/first_key.txt`, `Lab3/second_key.txt` and `Lab3/third_key.txt`.
 
 
 ### Setup
@@ -56,7 +56,7 @@ pip install -r requirements.txt
 ### Usage
 
 ```bash
-python client.py
+python main.py
 ```
 
 #### For the forking bonus assignment:
