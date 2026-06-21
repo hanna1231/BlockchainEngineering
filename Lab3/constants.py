@@ -28,17 +28,16 @@ def load_member_pubkeys() -> list[bytes]:
 # Valid values are [0, 2^63 - 1], giving a space size of 2^63.
 NONCE_SPACE = 2**63
 DIFFICULTY = 20
-MAX_TX_HASHES = 4
-ZERO_HASH = b"\x00" * 32      # used as prev_hash of the genesis block
+MAX_TX_HASHES = 4 
 
-GENESIS_PREV_HASH = b'\x00' * 32
-GENESIS_TIMESTAMP = 1748736000  # Fixed for all nodes
+GENESIS_PREV_HASH = b'\x00' * 32  # used as prev_hash of the genesis block
+GENESIS_TIMESTAMP = 1748736000    # Fixed for all nodes
 GENESIS_DIFFICULTY = 0
 GENESIS_NONCE = 0
 
 MAX_SEARCH_DEPTH_FORK = 30
 
-PARTITION_TEST_ENABLED = True
+PARTITION_TEST_ENABLED = False
 PARTITION_START_AFTER_SECONDS = 30
 PARTITION_DURATION_SECONDS = 60
 

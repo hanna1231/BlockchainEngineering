@@ -58,3 +58,7 @@ pip install -r requirements.txt
 ```bash
 python client.py
 ```
+
+#### For the forking bonus assignment:
+
+If you want to create a partition, set `PARTITION_TEST_ENABLED` to True in `Lab3/constants.py` for the peer that you want separated. After 30 seconds of running the peer will start to ignore messages and will not send messages to other peers. After another 30 seconds it will try to reconnect again.
